@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map Viewer</title>
+    <!-- Use Tailwind CSS for a clean, modern UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Include Leaflet CSS for the map styling -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxNcxT+tA2qP/r4i9z2w1D/Lq0oWjR80z/bA/i7xI="
+          crossorigin=""/>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom styles to ensure the map container has a defined height */
+        #map-container {
+            height: 500px;
+            width: 100%;
+            border-radius: 1rem; /* Rounded corners for the map */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <!-- Main container for the app UI -->
+    <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-2xl border border-gray-200">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">Find a Location on the Map</h1>
+
+        <!-- Input field and search button -->
+        <div class="flex flex-col sm:flex-row gap-4 mb-6">
+            <input type="text" id="location-input" placeholder="Enter a city or address"
+                   class="flex-grow p-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200">
+            <button id="search-btn"
+                    class="bg-blue-600 text-white font-semibold py-3 px-6 rounded-xl hover:bg-blue-700 transition-colors duration-200 shadow-md">
+                Search
+            </button>
+        </div>
+
+        <!-- Container for the map -->
+        <div id="map-container" class="rounded-2xl shadow-lg border border-gray-300"></div>
+
+        <!-- Message display for errors and loading state -->
+        <div id="message-box" class="hidden mt-4 p-4 rounded-xl text-center"></div>
+    </div>
+
+    <!-- Include Leaflet JavaScript -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-200G/b6C+5/F4k5/t8pYyT5Sj2n6GfC2WjF8c8d8zI="
+            crossorigin=""></script>
+
+    <script>
+        // DOM element references
+        const locationInput = document.getElementById('location-input');
+        const searchBtn = document.getElementById('search-btn');
+        const mapContainer = document.getElementById('map-container');
+        const messageBox = document.getElementById('message-box');
+
+        // Initialize the map centered on a default location (e.g., world view)
+        const map = L.map('map-container').setView([20, 0], 2); // Initial view: [lat, lng], zoom level
+
+        // Add the OpenStreetMap tile layer to the map
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        // Keep track of the current marker to remove it later
+        let currentMarker = null;
+
+        // Function to display messages to the user
+        function displayMessage(message, type = 'info') {
+            messageBox.textContent = message;
+            messageBox.classList.remove('hidden', 'bg-red-100', 'bg-blue-100', 'text-red-700', 'text-blue-700');
+            if (type === 'error') {
+                messageBox.classList.add('bg-red-100', 'text-red-700');
+            } else {
+                messageBox.classList.add('bg-blue-100', 'text-blue-700');
+            }
+        }
+        
+        // Function to fetch coordinates from Nominatim API and update the map
+        async function geocodeLocation(locationName) {
+            // Hide the message box and show a loading message
+            messageBox.classList.add('hidden');
+            displayMessage('Searching for location...', 'info');
+
+            // Construct the Nominatim API URL
+            const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(locationName)}&format=json&limit=1`;
+
+            try {
+                // Fetch data from the API
+                const response = await fetch(url);
+                
+                // Check if the request was successful
+                if (!response.ok) {
+                    // Provide a specific message for API rate-limiting or other issues
+                    if (response.status === 429) {
+                         displayMessage('You have made too many requests. Please wait a few moments and try again.', 'error');
+                    } else if (response.status === 404) {
+                        displayMessage('Location not found. Please try a different name.', 'error');
+                    } else {
+                        displayMessage(`An API error occurred: ${response.status} ${response.statusText}.`, 'error');
+                    }
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+
+                // Check if any results were found
+                if (data && data.length > 0) {
+                    const lat = parseFloat(data[0].lat);
+                    const lon = parseFloat(data[0].lon);
+
+                    // If a previous marker exists, remove it
+                    if (currentMarker) {
+                        map.removeLayer(currentMarker);
+                    }
+
+                    // Create a new marker at the found coordinates
+                    currentMarker = L.marker([lat, lon]).addTo(map)
+                        .bindPopup(`<b>${data[0].display_name}</b>`).openPopup();
+                    
+                    // Center the map on the new location with a good zoom level
+                    map.setView([lat, lon], 13);
+                    
+                    // Hide the message box on success
+                    messageBox.classList.add('hidden');
+
+                } else {
+                    // No results found
+                    displayMessage('Location not found. Please try a different name.', 'error');
+                }
+
+            } catch (error) {
+                // Handle network or other errors that occurred before a response was received
+                console.error("Geocoding failed:", error);
+                displayMessage('Network error. Please check your internet connection.', 'error');
+            }
+        }
+
+        // Event listener for the button click
+        searchBtn.addEventListener('click', () => {
+            const query = locationInput.value.trim();
+            if (query) {
+                geocodeLocation(query);
+            } else {
+                displayMessage('Please enter a location to search.', 'error');
+            }
+        });
+
+        // Event listener for the Enter key press in the input field
+        locationInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                searchBtn.click();
+            }
+        });
+    </script>
+
+</body>
+</html>
